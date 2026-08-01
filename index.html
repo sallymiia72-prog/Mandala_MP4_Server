@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Живая Мандала Души — MP4</title>
+<style>
+:root{--bg:#020617;--panel:#04091d;--gold:#e8c66a;--text:#fff9e8}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}
+body{display:flex;justify-content:center;overflow-x:hidden}
+.app{width:min(100vw,800px);min-height:100vh;display:grid;grid-template-rows:auto 1fr;background:#020617}
+.toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px;background:rgba(4,9,29,.96);border-bottom:1px solid rgba(232,198,106,.45);z-index:3}
+.control{grid-column:1/-1;display:flex;flex-direction:column;gap:5px}
+label{color:var(--gold);font-size:13px;font-weight:700}
+input,button{min-height:44px;border:1px solid rgba(232,198,106,.72);border-radius:11px;background:linear-gradient(180deg,#17479f,#0b2b68);color:var(--text);padding:9px 12px;font:700 14px Arial,sans-serif}
+input{font-weight:500}button{cursor:pointer;touch-action:manipulation}button:active{filter:brightness(1.2)}button:disabled{opacity:.6}
+.stage{position:relative;min-height:calc(100vh - 110px);height:100%;display:grid;place-items:stretch;overflow:hidden;background:#020617}
+canvas{display:block;width:100%;height:100%;min-height:0}
+.status{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.38);color:rgba(255,245,214,.82);font-size:11px;white-space:nowrap;pointer-events:none}
+@media(min-width:700px){.toolbar{grid-template-columns:1.2fr 1fr 1fr;align-items:end}.control{grid-column:auto}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="toolbar">
+<div class="control"><label for="birth">Дата рождения</label><input id="birth" type="date" name="mandala_birth_input" autocomplete="off" data-lpignore="true"></div>
+<button id="downloadVideo" type="button">Создать MP4 + музыку</button>
+<button id="downloadImage" type="button">Скачать изображение</button>
+</header>
+<main class="stage">
+<canvas id="mandala" width="1080" height="1350"></canvas>
+<div class="status" id="status">Версия 3.0 · Введите дату рождения</div>
+</main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+<script>
+"use strict";
+const PALETTE=Object.freeze({
+1:{base:"#ff163f",light:"#ff9aae",dark:"#740018",glow:"#ff3159"},2:{base:"#ff7200",light:"#ffbd70",dark:"#842800",glow:"#ff8b20"},3:{base:"#ffd600",light:"#fff292",dark:"#8b6400",glow:"#ffe64d"},4:{base:"#79e600",light:"#c4ff7d",dark:"#337600",glow:"#9dff34"},5:{base:"#008b45",light:"#5de69a",dark:"#003c20",glow:"#12d06b"},6:{base:"#00d5ca",light:"#86fff6",dark:"#00615c",glow:"#2af4e8"},7:{base:"#25b8ff",light:"#a5e5ff",dark:"#07578e",glow:"#53c9ff"},8:{base:"#1759ff",light:"#98b5ff",dark:"#071e7a",glow:"#4679ff"},9:{base:"#7d28ff",light:"#c9a1ff",dark:"#35106c",glow:"#9d55ff"},10:{base:"#b35aff",light:"#e0b6ff",dark:"#581b80",glow:"#c77cff"},11:{base:"#ff4c9b",light:"#ffafd2",dark:"#7a1647",glow:"#ff69af"},12:{base:"#ef00cf",light:"#ff93ec",dark:"#70005e",glow:"#ff35df"}});
+const SOUND_MAP=Object.freeze({1:{f:261.63},2:{f:293.66},3:{f:329.63},4:{f:349.23},5:{f:392},6:{f:440},7:{f:493.88},8:{f:523.25},9:{f:587.33},10:{f:659.25},11:{f:698.46},12:{f:783.99}});
+function fold12(value){let n=Math.abs(Number(value))||0;while(n>12)n=String(n).split("").reduce((s,d)=>s+Number(d),0);return n===0?12:n}
+function calculateSoulProfile(dateString){
+  if(!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)){
+    return null;
+  }
+
+  const [year,month,day]=dateString.split("-").map(Number);
+  if(!year || !month || !day) return null;
+
+  const P={};
+  P[1]=fold12(day);
+  P[2]=fold12(month);
+  P[3]=fold12(year);
+  P[4]=fold12(P[1]+P[2]);
+  P[5]=fold12(P[1]+P[3]);
+  P[6]=fold12(P[2]+P[3]);
+  P[7]=fold12(P[4]+P[5]);
+  P[8]=fold12(P[4]+P[6]);
+  P[9]=fold12(P[5]+P[6]);
+  P[10]=fold12(P[7]+P[8]);
+  P[11]=fold12(P[7]+P[9]);
+  P[12]=fold12(P[8]+P[9]);
+
+  return {birthDate:dateString,positions:P};
+}
+function createSectorMesh(radius){const t=Math.tan(Math.PI/12),r1=radius*.27,r2=radius*.55,r3=radius*.80,r4=radius,w1=r1*t,w2=r2*t,w3=r3*t,w4=r4*t,O=[0,0],A=[-w1,r1],B=[w1,r1],C=[-w2,r2],D=[0,r2],E=[w2,r2],F=[-w3,r3],G=[-w3/3,r3],H=[w3/3,r3],I=[w3,r3],J=[-w4,r4],K=[0,r4],L=[w4,r4];return[{p:1,pts:[O,A,B]},{p:2,pts:[A,B,D]},{p:3,pts:[A,D,C]},{p:5,pts:[B,E,D]},{p:4,pts:[C,D,G]},{p:7,pts:[C,G,F]},{p:9,pts:[D,H,G]},{p:6,pts:[D,E,H]},{p:11,pts:[E,I,H]},{p:8,pts:[F,G,J]},{p:10,pts:[G,H,K]},{p:12,pts:[H,I,L]}]}
+const canvas=document.getElementById("mandala"),ctx=canvas.getContext("2d",{alpha:false}),birthInput=document.getElementById("birth"),videoButton=document.getElementById("downloadVideo"),imageButton=document.getElementById("downloadImage"),statusNode=document.getElementById("status");
+let profile=calculateSoulProfile(birthInput.value),startedAt=performance.now();
+
+// AUDIO
+const AC=window.AudioContext||window.webkitAudioContext;let ac=null,master=null,dest=null,timer=0,soundOn=false;
+function setupAudio(){if(!AC)return false;if(!ac){ac=new AC();master=ac.createGain();master.gain.value=.78;const comp=ac.createDynamicsCompressor();comp.threshold.value=-20;comp.knee.value=18;comp.ratio.value=4;comp.attack.value=.02;comp.release.value=.35;dest=ac.createMediaStreamDestination();master.connect(comp);comp.connect(ac.destination);comp.connect(dest)}return true}
+function oscTone(f,start,dur,type,vol,attack=.03,release=.8,detune=0){const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f,start);o.detune.setValueAtTime(detune,start);g.gain.setValueAtTime(.0001,start);g.gain.exponentialRampToValueAtTime(Math.max(.0002,vol),start+attack);g.gain.setValueAtTime(Math.max(.0002,vol),Math.max(start+attack,start+dur-release));g.gain.exponentialRampToValueAtTime(.0001,start+dur);o.connect(g);g.connect(master);o.start(start);o.stop(start+dur+.05)}
+function noise(start,dur,vol,cut){const len=Math.floor(ac.sampleRate*dur),b=ac.createBuffer(1,len,ac.sampleRate),d=b.getChannelData(0);for(let i=0;i<len;i++)d[i]=Math.random()*2-1;const s=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();s.buffer=b;f.type="lowpass";f.frequency.value=cut;g.gain.setValueAtTime(vol,start);g.gain.exponentialRampToValueAtTime(.0001,start+dur);s.connect(f);f.connect(g);g.connect(master);s.start(start);s.stop(start+dur+.05)}
+function playEnergy(e,delay=0,level=1){if(!ac)return;const t=ac.currentTime+delay,f=SOUND_MAP[e].f,v=.095*level;switch(e){case 1:oscTone(f/4,t,2.8,"sine",v*1.2,.01,1.5);oscTone(f/8,t,3.4,"sine",v*.7,.05,1.8);noise(t,.22,v*.7,180);break;case 2:noise(t,1.8,v*.18,1800);oscTone(f*2,t+.05,2.5,"sine",v*.58,.01,1.8);oscTone(f*3,t+.14,2.1,"sine",v*.22,.01,1.5);break;case 3:oscTone(f,t,3,"sine",v*.85,.22,1);oscTone(f*2,t,2.5,"sine",v*.1,.2,1);break;case 4:oscTone(f,t,3.5,"sawtooth",v*.2,.65,1.4,-5);oscTone(f,t,3.5,"sawtooth",v*.2,.65,1.4,5);oscTone(f*1.5,t+.1,3,"triangle",v*.16,.5,1.2);break;case 5:oscTone(f/2,t,3.8,"triangle",v*.52,.04,2);oscTone(f,t,2.8,"sine",v*.32,.02,1.7);oscTone(f*2,t,1.7,"sine",v*.1,.01,1.2);break;case 6:[1,1.5,2,3].forEach((m,i)=>oscTone(f*m,t+i*.07,2.7-i*.2,"triangle",v*(.55/(i+1)),.01,1.9));break;case 7:oscTone(f/2,t,3.6,"sawtooth",v*.24,.45,1.5);oscTone(f,t,3.3,"triangle",v*.3,.4,1.3);oscTone(f*1.5,t+.08,3,"sine",v*.13,.35,1.2);break;case 8:[1,2.01,2.72,4.05].forEach((m,i)=>oscTone(f*m,t,5-i*.3,"sine",v*(.68/(i+1)),.02,3.6));break;case 9:oscTone(f/2,t,4.5,"sine",v*.4,.8,1.8,-8);oscTone(f/2,t,4.5,"triangle",v*.24,.8,1.8,8);oscTone(f*1.5,t+.2,3.8,"sine",v*.14,.8,1.5);break;case 10:[.5,1,1.25,1.5].forEach((m,i)=>oscTone(f*m,t,4.3,"sine",v*(.38-i*.04),.9,1.7,(i-1.5)*4));break;case 11:[1,2,3,4.2].forEach((m,i)=>oscTone(f*m,t+i*.04,4-i*.25,"sine",v*(.58/(i+1)),.01,3));oscTone(f/2,t,4.4,"triangle",v*.15,.6,1.8);break;case 12:[.5,1,1.5,2,3].forEach((m,i)=>oscTone(f*m,t+i*.025,4.8-i*.22,"sine",v*(.34/(1+i*.28)),1,2,(i-2)*3));break}}
+function startSequence(){if(!ac||!profile)return;if(timer)clearInterval(timer);const order=[1,2,3,4,5,6,7,8,9,10,11,12];order.forEach((p,i)=>playEnergy(profile.positions[p],i*.28,.78));let step=0;timer=setInterval(()=>{const p=order[step%12];playEnergy(profile.positions[p],0,.46);if(step%4===0)playEnergy(profile.positions[order[(step+4)%12]],.15,.22);step++},1050)}
+async function ensureAudio(){
+  try{
+    if(!profile || !birthInput.value){
+      statusNode.textContent="Сначала введи дату рождения";
+      return false;
+    }
+
+    if(!setupAudio()){
+      statusNode.textContent="Звук не поддерживается этим браузером";
+      return false;
+    }
+
+    if(ac.state!=="running"){
+      await ac.resume();
+    }
+
+    if(ac.state!=="running"){
+      statusNode.textContent="Коснись мандалы ещё раз";
+      return false;
+    }
+
+    if(!soundOn){
+      soundOn=true;
+      startedAt=performance.now();
+
+      const first=profile.positions[1];
+      const fifth=profile.positions[5];
+      const ninth=profile.positions[9];
+
+      playEnergy(first,.02,1.35);
+      playEnergy(fifth,.16,1.05);
+      playEnergy(ninth,.30,.9);
+
+      setTimeout(()=>{
+        if(profile) startSequence();
+      },650);
+
+      statusNode.textContent="Персональная мандала звучит";
+      setTimeout(()=>statusNode.textContent="Звук включён",1800);
+    }
+
+    return true;
+  }catch(error){
+    console.error("Audio start error:",error);
+    statusNode.textContent="Не удалось включить звук";
+    return false;
+  }
+}
+
+function bindAudioStart(target){
+  target.addEventListener("pointerup",event=>{
+    event.preventDefault();
+    ensureAudio();
+  },{passive:false});
+}
+
+bindAudioStart(canvas);
+window.addEventListener("keydown",()=>ensureAudio());
+
+function hexToRgb(hex){const n=parseInt(hex.slice(1),16);return{r:(n>>16)&255,g:(n>>8)&255,b:n&255}}
+function rgba(hex,a){const{r,g,b}=hexToRgb(hex);return`rgba(${r},${g},${b},${a})`}
+function pathTriangle(pts){ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);ctx.lineTo(pts[1][0],pts[1][1]);ctx.lineTo(pts[2][0],pts[2][1]);ctx.closePath()}
+function resizeCanvas(){const rect=canvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,1.5);canvas.width=Math.max(540,Math.round(rect.width*dpr));canvas.height=Math.max(675,Math.round(rect.height*dpr));ctx.setTransform(dpr,0,0,dpr,0,0)}
+function drawBackground(w,h,time){const cx=w/2,cy=h*.52,bg=ctx.createRadialGradient(cx,cy,0,cx,cy,Math.max(w,h)*.72);bg.addColorStop(0,"#15449d");bg.addColorStop(.28,"#0b2d78");bg.addColorStop(.68,"#06163f");bg.addColorStop(1,"#020617");ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);for(let i=0;i<180;i++){const a=i*2.399963,d=((i*61)%100)/100*Math.max(w,h)*.62,x=cx+Math.cos(a)*d,y=cy+Math.sin(a)*d,tw=.18+.68*(.5+.5*Math.sin(time*.0018+i*1.37));ctx.beginPath();ctx.fillStyle=`rgba(225,241,255,${tw})`;ctx.arc(x,y,.35+(i%5)*.28,0,Math.PI*2);ctx.fill()}}
+function drawFacet(pts,mineral,time,index,intensity){const cx=(pts[0][0]+pts[1][0]+pts[2][0])/3,cy=(pts[0][1]+pts[1][1]+pts[2][1])/3,maxR=Math.max(...pts.map(([x,y])=>Math.hypot(x-cx,y-cy)))+12,shimmer=.5+.5*Math.sin(time*.002+index*1.4);ctx.save();pathTriangle(pts);ctx.shadowColor=mineral.glow;ctx.shadowBlur=8+18*intensity;const fill=ctx.createRadialGradient(cx-maxR*.38,cy-maxR*.52,1,cx,cy,maxR);fill.addColorStop(0,`rgba(255,255,255,${.48+.18*shimmer})`);fill.addColorStop(.1,mineral.light);fill.addColorStop(.38,mineral.base);fill.addColorStop(.8,mineral.dark);fill.addColorStop(1,mineral.dark);ctx.fillStyle=fill;ctx.fill();ctx.clip();const glass=ctx.createLinearGradient(pts[0][0],pts[0][1],pts[2][0],pts[2][1]);glass.addColorStop(0,"rgba(255,255,255,.24)");glass.addColorStop(.28,"rgba(255,255,255,.04)");glass.addColorStop(.65,"rgba(0,0,0,.16)");glass.addColorStop(1,rgba(mineral.light,.16));ctx.fillStyle=glass;ctx.fillRect(cx-maxR,cy-maxR,maxR*2,maxR*2);ctx.restore();ctx.save();pathTriangle(pts);ctx.lineWidth=1.05+intensity*.8;ctx.strokeStyle=rgba(mineral.light,.88);ctx.shadowColor=mineral.glow;ctx.shadowBlur=7+12*intensity;ctx.stroke();ctx.restore()}
+function drawMandala(positions,radius,time,intensity){const mesh=createSectorMesh(radius);for(let sector=0;sector<12;sector++){ctx.save();ctx.rotate(sector*Math.PI/6);for(let i=0;i<mesh.length;i++){const facet=mesh[i];drawFacet(facet.pts,PALETTE[positions[facet.p]],time,i+sector*12,intensity)}ctx.restore()}}
+function drawCore(radius,time){const pulse=.5+.5*Math.sin(time*.006),r=radius*(.035+.014*pulse);ctx.save();ctx.globalCompositeOperation="screen";const halo=ctx.createRadialGradient(0,0,0,0,0,r*8);halo.addColorStop(0,"rgba(255,255,255,1)");halo.addColorStop(.12,"rgba(255,248,190,.95)");halo.addColorStop(.34,"rgba(255,206,70,.55)");halo.addColorStop(1,"rgba(255,142,0,0)");ctx.fillStyle=halo;ctx.beginPath();ctx.arc(0,0,r*8,0,Math.PI*2);ctx.fill();ctx.restore()}
+
+function drawPremiumGold(w,h,time,cx,cy,radius,reveal){
+  const show=Math.max(0,Math.min(1,reveal));
+  const smooth=show*show*(3-2*show);
+  const pulse=.5+.5*Math.sin(time*.00225);
+  const edge=Math.hypot(w/2,h/2)*1.04;
+
+  ctx.save();
+  ctx.globalCompositeOperation="screen";
+
+  const haloOuter=Math.min(edge,radius*(1.62+.08*pulse));
+  const halo=ctx.createRadialGradient(
+    cx,cy,radius*.78,
+    cx,cy,haloOuter
+  );
+  halo.addColorStop(0,"rgba(255,238,166,0)");
+  halo.addColorStop(.30,`rgba(255,223,123,${(.11+.05*pulse)*smooth})`);
+  halo.addColorStop(.62,`rgba(255,184,48,${(.18+.09*pulse)*smooth})`);
+  halo.addColorStop(.86,`rgba(255,150,17,${(.09+.055*pulse)*smooth})`);
+  halo.addColorStop(1,"rgba(255,138,0,0)");
+  ctx.fillStyle=halo;
+  ctx.fillRect(0,0,w,h);
+
+  ctx.translate(cx,cy);
+  ctx.lineCap="round";
+
+  const ringRadius=radius*(1.025+.012*pulse);
+  ctx.beginPath();
+  ctx.arc(0,0,ringRadius,0,Math.PI*2);
+  ctx.strokeStyle=`rgba(255,224,132,${(.42+.24*pulse)*smooth})`;
+  ctx.lineWidth=Math.max(2.2,radius*(.010+.006*pulse));
+  ctx.shadowColor="rgba(255,179,30,.96)";
+  ctx.shadowBlur=radius*(.035+.035*pulse);
+  ctx.stroke();
+
+  const clockwise=time*.000145;
+  const mainCount=48;
+
+  ctx.save();
+  ctx.rotate(clockwise);
+
+  for(let i=0;i<mainCount;i++){
+    const angle=i*Math.PI*2/mainCount;
+    const localPulse=.5+.5*Math.sin(time*.00205+i*.72);
+    const accent=i%4===0;
+
+    const inner=radius*(.82-.035*localPulse);
+    const outer=edge*(.94+.055*localPulse);
+
+    const x1=Math.cos(angle)*inner;
+    const y1=Math.sin(angle)*inner;
+    const x2=Math.cos(angle)*outer;
+    const y2=Math.sin(angle)*outer;
+
+    const g=ctx.createLinearGradient(x1,y1,x2,y2);
+    g.addColorStop(0,"rgba(255,235,156,0)");
+    g.addColorStop(.10,`rgba(255,244,201,${(.06+.055*localPulse)*smooth})`);
+    g.addColorStop(.40,`rgba(255,211,101,${((accent?.26:.17)+.10*localPulse)*smooth})`);
+    g.addColorStop(.76,`rgba(255,171,34,${((accent?.17:.10)+.075*localPulse)*smooth})`);
+    g.addColorStop(1,"rgba(255,142,0,0)");
+
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.strokeStyle=g;
+    ctx.lineWidth=radius*((accent?.021:.012)+.006*localPulse);
+    ctx.shadowColor="rgba(255,183,41,.94)";
+    ctx.shadowBlur=radius*((accent?.038:.024)+.022*localPulse);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.rotate(clockwise*.74+Math.PI/mainCount);
+
+  for(let i=0;i<mainCount;i++){
+    const angle=i*Math.PI*2/mainCount;
+    const localPulse=.5+.5*Math.sin(time*.00235+i*.91);
+
+    const inner=radius*(.90-.025*localPulse);
+    const outer=edge*(.89+.045*localPulse);
+
+    const x1=Math.cos(angle)*inner;
+    const y1=Math.sin(angle)*inner;
+    const x2=Math.cos(angle)*outer;
+    const y2=Math.sin(angle)*outer;
+
+    const g=ctx.createLinearGradient(x1,y1,x2,y2);
+    g.addColorStop(0,"rgba(255,235,159,0)");
+    g.addColorStop(.24,`rgba(255,238,181,${(.035+.045*localPulse)*smooth})`);
+    g.addColorStop(.70,`rgba(255,187,52,${(.08+.075*localPulse)*smooth})`);
+    g.addColorStop(1,"rgba(255,146,0,0)");
+
+    ctx.beginPath();
+    ctx.moveTo(x1,y1);
+    ctx.lineTo(x2,y2);
+    ctx.strokeStyle=g;
+    ctx.lineWidth=radius*(.006+.004*localPulse);
+    ctx.shadowColor="rgba(255,193,67,.70)";
+    ctx.shadowBlur=radius*(.012+.012*localPulse);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  for(let i=0;i<150;i++){
+    const angle=i*2.399963+clockwise*.48;
+    const band=((i*29)%61)/61;
+    const drift=.5+.5*Math.sin(time*.0009+i*.77);
+    const twinkle=.5+.5*Math.sin(time*.003+i*2.03);
+    const distance=radius*(.98+.62*band+.045*drift);
+    const x=Math.cos(angle)*distance;
+    const y=Math.sin(angle)*distance;
+    const rare=i%19===0;
+    const size=.35+(i%6)*.19+(rare?1.15*twinkle:0);
+    const alpha=(.055+.36*twinkle+(rare?.18*twinkle:0))*smooth;
+
+    ctx.beginPath();
+    ctx.fillStyle=`rgba(255,230,157,${alpha})`;
+    ctx.shadowColor="rgba(255,195,67,.92)";
+    ctx.shadowBlur=2+10*twinkle;
+    ctx.arc(x,y,size,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+
+function renderExportFrame(time){
+  const w=canvas.clientWidth;
+  const h=canvas.clientHeight;
+
+  drawBackground(w,h,time);
+
+  const cx=w/2;
+  const cy=h*.475;
+  const radius=Math.min(w,h)*.455;
+  const pulse=.5+.5*Math.sin(time*.00225);
+
+  drawPremiumGold(w,h,time,cx,cy,radius,1);
+
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(time*.00185);
+  ctx.scale(.985+.015*pulse,.985+.015*pulse);
+  ctx.globalAlpha=1;
+
+  drawMandala(profile.positions,radius,time,1);
+  drawCore(radius,time);
+
+  ctx.restore();
+}
+
+function render(time){
+  const w=canvas.clientWidth;
+  const h=canvas.clientHeight;
+
+  drawBackground(w,h,time);
+
+  if(!profile){
+    ctx.save();
+    ctx.textAlign="center";
+    ctx.fillStyle="rgba(244,213,124,.96)";
+    ctx.font="700 24px Arial";
+    ctx.fillText("ЖИВАЯ МАНДАЛА ДУШИ",w/2,h*.43);
+
+    ctx.fillStyle="rgba(255,249,229,.78)";
+    ctx.font="500 15px Arial";
+    ctx.fillText("Введите дату рождения",w/2,h*.485);
+    ctx.fillText("и персональная мандала проявится",w/2,h*.52);
+    ctx.restore();
+
+    requestAnimationFrame(render);
+    return;
+  }
+
+  const cx=w/2;
+  const cy=h*.475;
+  const radius=Math.min(w,h)*.455;
+  const reveal=Math.min(1,(time-startedAt)/1100);
+  const eased=reveal*reveal*(3-2*reveal);
+  const pulse=.5+.5*Math.sin(time*.00225);
+
+  drawPremiumGold(w,h,time,cx,cy,radius,reveal);
+
+  const clockwiseRotation=time*.00185;
+
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(clockwiseRotation);
+  ctx.scale((.985+.015*pulse)*eased,(.985+.015*pulse)*eased);
+  ctx.globalAlpha=eased;
+
+  drawMandala(profile.positions,radius,time,1);
+  drawCore(radius,time);
+
+  ctx.restore();
+  requestAnimationFrame(render);
+}
+let generationId=0;
+let activeRecorder=null;
+let activeRecordingStream=null;
+
+function syncProfileFromInput(showStatus=true){
+  const value=birthInput.value;
+  const nextProfile=calculateSoulProfile(value);
+
+  if(!nextProfile){
+    profile=null;
+    if(timer){
+      clearInterval(timer);
+      timer=0;
+    }
+    soundOn=false;
+    if(showStatus) statusNode.textContent="Введите дату рождения";
+    return false;
+  }
+
+  profile=nextProfile;
+  startedAt=performance.now();
+
+  if(timer){
+    clearInterval(timer);
+    timer=0;
+  }
+
+  // Новая дата — новая музыкальная последовательность.
+  if(soundOn && ac && ac.state==="running"){
+    startSequence();
+  }
+
+  if(showStatus){
+    const displayDate=value.split("-").reverse().join(".");
+    statusNode.textContent=`Мандала обновлена: ${displayDate}`;
+    setTimeout(()=>statusNode.textContent="Коснись мандалы — включится звук",1600);
+  }
+  return true;
+}
+
+birthInput.addEventListener("input",()=>syncProfileFromInput(true));
+birthInput.addEventListener("change",()=>syncProfileFromInput(true));
+
+imageButton.addEventListener("click",async()=>{
+  if(!syncProfileFromInput(false)){
+    alert("Сначала введи дату рождения.");
+    return;
+  }
+
+  try{
+    const exportTime=performance.now();
+    renderExportFrame(exportTime);
+
+    const safeDate=birthInput.value.split("-").reverse().join("-");
+    const link=document.createElement("a");
+    link.download=`Soul_Mandala_${safeDate}.png`;
+    link.href=canvas.toDataURL("image/png",1);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    statusNode.textContent=`PNG сохранён: ${safeDate}`;
+    setTimeout(()=>statusNode.textContent="Коснись мандалы — включится звук",1800);
+  }catch(error){
+    console.error(error);
+    alert("Не удалось сохранить изображение.");
+  }
+});
+
+
+let readyVideoUrl=null;
+let readyVideoName="";
+let recordingInProgress=false;
+let ffmpegInstance=null;
+let ffmpegLoaded=false;
+
+function clearReadyVideo(){
+  if(readyVideoUrl){
+    URL.revokeObjectURL(readyVideoUrl);
+    readyVideoUrl=null;
+    readyVideoName="";
+  }
+}
+
+function downloadReadyVideo(){
+  if(!readyVideoUrl) return false;
+
+  const link=document.createElement("a");
+  link.href=readyVideoUrl;
+  link.download=readyVideoName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  statusNode.textContent="MP4 отправлен на скачивание";
+  videoButton.textContent="Создать MP4 + музыку";
+  return true;
+}
+
+async function loadFfmpeg(){
+  if(ffmpegLoaded && ffmpegInstance) return ffmpegInstance;
+
+  if(!window.FFmpegWASM || !window.FFmpegUtil){
+    throw new Error("Модуль MP4 не загрузился. Проверь интернет и обнови страницу.");
+  }
+
+  const {FFmpeg}=window.FFmpegWASM;
+  const {toBlobURL}=window.FFmpegUtil;
+  const ffmpeg=new FFmpeg();
+
+  ffmpeg.on("progress",({progress})=>{
+    const percent=Math.max(0,Math.min(100,Math.round(progress*100)));
+    videoButton.textContent=`Создание MP4: ${percent}%`;
+    statusNode.textContent="Конвертация в совместимый MP4 — не закрывай страницу";
+  });
+
+  const coreBase="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
+  await ffmpeg.load({
+    coreURL:await toBlobURL(`${coreBase}/ffmpeg-core.js`,"text/javascript"),
+    wasmURL:await toBlobURL(`${coreBase}/ffmpeg-core.wasm`,"application/wasm")
+  });
+
+  ffmpegInstance=ffmpeg;
+  ffmpegLoaded=true;
+  return ffmpeg;
+}
+
+async function convertWebmToMp4(webmBlob,safeDate){
+  const ffmpeg=await loadFfmpeg();
+  const {fetchFile}=window.FFmpegUtil;
+  const inputName=`mandala_${Date.now()}.webm`;
+  const outputName=`mandala_${Date.now()}.mp4`;
+
+  await ffmpeg.writeFile(inputName,await fetchFile(webmBlob));
+
+  await ffmpeg.exec([
+    "-i",inputName,
+    "-c:v","libx264",
+    "-preset","ultrafast",
+    "-crf","25",
+    "-pix_fmt","yuv420p",
+    "-profile:v","main",
+    "-c:a","aac",
+    "-b:a","128k",
+    "-ar","48000",
+    "-ac","2",
+    "-movflags","+faststart",
+    outputName
+  ]);
+
+  const data=await ffmpeg.readFile(outputName);
+  await Promise.allSettled([
+    ffmpeg.deleteFile(inputName),
+    ffmpeg.deleteFile(outputName)
+  ]);
+
+  const mp4Blob=new Blob([data.buffer],{type:"video/mp4"});
+  clearReadyVideo();
+  readyVideoUrl=URL.createObjectURL(mp4Blob);
+  readyVideoName=`Soul_Mandala_${safeDate}_120s.mp4`;
+}
+
+videoButton.addEventListener("click",async()=>{
+  if(readyVideoUrl){
+    downloadReadyVideo();
+    return;
+  }
+
+  if(recordingInProgress) return;
+
+  if(typeof syncProfileFromInput==="function"){
+    if(!syncProfileFromInput(false)){
+      alert("Сначала введи дату рождения.");
+      return;
+    }
+  }else if(!birthInput.value || !profile){
+    alert("Сначала введи дату рождения.");
+    return;
+  }
+
+  const audioReady=await ensureAudio();
+  if(!audioReady || !ac || ac.state!=="running"){
+    alert("Коснись мандалы, чтобы включить музыку, затем снова нажми кнопку видео.");
+    return;
+  }
+
+  if(!window.MediaRecorder || typeof canvas.captureStream!=="function"){
+    alert("Запись видео не поддерживается этим браузером.");
+    return;
+  }
+
+  clearReadyVideo();
+
+  const recordingDate=birthInput.value;
+  const safeDate=recordingDate.split("-").reverse().join("-");
+
+  const type=
+    MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+      ?"video/webm;codecs=vp8,opus":
+    MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+      ?"video/webm;codecs=vp8":
+    MediaRecorder.isTypeSupported("video/webm")
+      ?"video/webm":"";
+
+  if(!type){
+    alert("Этот браузер не поддерживает запись исходного видео.");
+    return;
+  }
+
+  if(!dest || !dest.stream || dest.stream.getAudioTracks().length===0){
+    alert("Не удалось подготовить музыкальную дорожку. Обнови страницу и коснись мандалы.");
+    return;
+  }
+
+  const canvasStream=canvas.captureStream(24);
+  const combinedStream=new MediaStream();
+  const videoTrack=canvasStream.getVideoTracks()[0];
+  const sourceAudioTrack=dest.stream.getAudioTracks()[0];
+  const audioTrack=sourceAudioTrack ? sourceAudioTrack.clone() : null;
+
+  if(videoTrack) combinedStream.addTrack(videoTrack);
+  if(audioTrack) combinedStream.addTrack(audioTrack);
+
+  if(combinedStream.getVideoTracks().length===0 || combinedStream.getAudioTracks().length===0){
+    canvasStream.getTracks().forEach(track=>track.stop());
+    if(audioTrack) audioTrack.stop();
+    alert("Не удалось соединить изображение и музыку.");
+    return;
+  }
+
+  const chunks=[];
+  let recorder;
+
+  try{
+    recorder=new MediaRecorder(combinedStream,{
+      mimeType:type,
+      videoBitsPerSecond:2200000,
+      audioBitsPerSecond:128000
+    });
+  }catch(error){
+    combinedStream.getTracks().forEach(track=>track.stop());
+    console.error(error);
+    alert("Не удалось запустить запись.");
+    return;
+  }
+
+  recordingInProgress=true;
+  videoButton.disabled=true;
+  imageButton.disabled=true;
+  birthInput.disabled=true;
+
+  let secondsLeft=120;
+  videoButton.textContent=`Запись: ${secondsLeft} сек`;
+  statusNode.textContent="Не закрывай и не сворачивай страницу — идёт запись с музыкой";
+
+  const countdown=setInterval(()=>{
+    secondsLeft--;
+    if(secondsLeft>0) videoButton.textContent=`Запись: ${secondsLeft} сек`;
+  },1000);
+
+  recorder.ondataavailable=event=>{
+    if(event.data && event.data.size>0) chunks.push(event.data);
+  };
+
+  recorder.onerror=event=>{
+    console.error("MediaRecorder error:",event.error);
+  };
+
+  recorder.onstart=()=>{
+    startedAt=performance.now();
+    if(timer){clearInterval(timer);timer=0;}
+    startSequence();
+  };
+
+  recorder.onstop=async()=>{
+    clearInterval(countdown);
+    combinedStream.getTracks().forEach(track=>track.stop());
+    canvasStream.getTracks().forEach(track=>track.stop());
+
+    const totalSize=chunks.reduce((sum,chunk)=>sum+chunk.size,0);
+    if(totalSize<1000){
+      recordingInProgress=false;
+      videoButton.disabled=false;
+      imageButton.disabled=false;
+      birthInput.disabled=false;
+      videoButton.textContent="Создать MP4 + музыку";
+      statusNode.textContent="Запись не создана";
+      alert("Браузер не создал запись. Не сворачивай вкладку во время записи.");
+      return;
+    }
+
+    try{
+      videoButton.textContent="Загрузка модуля MP4…";
+      statusNode.textContent="Подготавливается конвертация MP4";
+      const webmBlob=new Blob(chunks,{type});
+      await convertWebmToMp4(webmBlob,safeDate);
+      videoButton.textContent="Скачать готовый MP4";
+      statusNode.textContent="MP4 готов — нажми кнопку ещё раз";
+    }catch(error){
+      console.error("MP4 conversion error:",error);
+      videoButton.textContent="Создать MP4 + музыку";
+      statusNode.textContent="Не удалось создать MP4";
+      alert(error?.message || "Телефону не хватило памяти для конвертации MP4.");
+    }finally{
+      recordingInProgress=false;
+      videoButton.disabled=false;
+      imageButton.disabled=false;
+      birthInput.disabled=false;
+    }
+  };
+
+  recorder.start(1000);
+  setTimeout(()=>{
+    if(recorder.state==="recording"){
+      recorder.requestData();
+      setTimeout(()=>recorder.stop(),800);
+    }
+  },120000);
+});
+
+window.addEventListener("beforeunload",clearReadyVideo);
+
+window.addEventListener("resize",resizeCanvas);window.addEventListener("orientationchange",()=>setTimeout(resizeCanvas,180));resizeCanvas();
+
+if(!sessionStorage.getItem("mandala_session_started")){
+  birthInput.value="";
+  profile=null;
+  sessionStorage.setItem("mandala_session_started","1");
+}else{
+  syncProfileFromInput(false);
+}
+
+window.addEventListener("pageshow",event=>{
+  if(event.persisted){
+    syncProfileFromInput(false);
+  }
+});
+
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
