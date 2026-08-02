@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: soul-mandala-render
+    name: soul-mandala-async-light
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node server.js
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION

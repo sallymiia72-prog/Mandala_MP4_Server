@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import ffmpegPath from "ffmpeg-static";
@@ -9,24 +8,29 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 
+if (!ffmpegPath) throw new Error("FFmpeg binary not found.");
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 const ORIGINS = (process.env.ALLOWED_ORIGIN || "https://sallymiia72-prog.github.io")
-  .split(",")
-  .map(v => v.trim())
-  .filter(Boolean);
+  .split(",").map(v => v.trim()).filter(Boolean);
 
 app.use(cors({
   origin(origin, cb) {
     if (!origin || ORIGINS.includes("*") || ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error("Origin is not allowed"));
+    cb(new Error(`Origin not allowed: ${origin}`));
   },
   methods: ["GET", "POST", "OPTIONS"],
-  exposedHeaders: ["Content-Disposition", "Content-Length", "Content-Type"]
+  allowedHeaders: ["Content-Type", "Accept"],
+  exposedHeaders: ["Content-Disposition", "Content-Type", "Content-Length"]
 }));
+app.options("*", cors());
 app.use(express.json({ limit: "32kb" }));
 
-const PALETTE = {
+const jobs = new Map();
+let activeJobId = null;
+
+const COLORS = {
   1:["#ff163f","#ff9aae","#740018"],2:["#ff7200","#ffbd70","#842800"],
   3:["#ffd600","#fff292","#8b6400"],4:["#79e600","#c4ff7d","#337600"],
   5:["#008b45","#5de69a","#003c20"],6:["#00d5ca","#86fff6","#00615c"],
@@ -34,17 +38,20 @@ const PALETTE = {
   9:["#7d28ff","#c9a1ff","#35106c"],10:["#b35aff","#e0b6ff","#581b80"],
   11:["#ff4c9b","#ffafd2","#7a1647"],12:["#ef00cf","#ff93ec","#70005e"]
 };
-const FREQ = {1:261.63,2:293.66,3:329.63,4:349.23,5:392,6:440,7:493.88,8:523.25,9:587.33,10:659.25,11:698.46,12:783.99};
+const FREQ = {
+  1:261.63,2:293.66,3:329.63,4:349.23,5:392,6:440,
+  7:493.88,8:523.25,9:587.33,10:659.25,11:698.46,12:783.99
+};
 
-function fold12(value){
+function fold12(value) {
   let n = Math.abs(Number(value)) || 0;
-  while(n > 12) n = String(n).split("").reduce((s,d)=>s+Number(d),0);
+  while (n > 12) n = String(n).split("").reduce((s,d)=>s+Number(d),0);
   return n === 0 ? 12 : n;
 }
 
-function profile(dateString){
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(dateString || "")) throw new Error("Invalid birthDate");
-  const [year, month, day] = dateString.split("-").map(Number);
+function calculate(dateString) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString || "")) throw new Error("Invalid birthDate");
+  const [year,month,day] = dateString.split("-").map(Number);
   const P = {};
   P[1]=fold12(day); P[2]=fold12(month); P[3]=fold12(year);
   P[4]=fold12(P[1]+P[2]); P[5]=fold12(P[1]+P[3]); P[6]=fold12(P[2]+P[3]);
@@ -53,166 +60,188 @@ function profile(dateString){
   return P;
 }
 
-function esc(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[m]));}
-
-function backgroundSvg(w,h){
-  let stars = "";
-  for(let i=0;i<220;i++){
-    const a=i*2.399963, d=((i*61)%100)/100*Math.max(w,h)*.65;
-    const x=w/2+Math.cos(a)*d, y=h*.5+Math.sin(a)*d;
-    const r=.6+(i%5)*.35;
-    stars += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="#dff2ff" opacity="${(.18+(i%7)*.08).toFixed(2)}"/>`;
+function backgroundSvg(w,h) {
+  let stars="", rays="";
+  for(let i=0;i<96;i++){
+    const a=i*2.399963, d=((i*47)%100)/100*Math.max(w,h)*.64;
+    const x=w/2+Math.cos(a)*d, y=h/2+Math.sin(a)*d;
+    stars += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${.7+(i%3)*.4}" fill="#e7f4ff" opacity="${.2+(i%5)*.1}"/>`;
   }
-  let rays="";
-  for(let i=0;i<48;i++){
-    const a=i*Math.PI*2/48;
-    const x1=w/2+Math.cos(a)*170, y1=h*.5+Math.sin(a)*170;
-    const x2=w/2+Math.cos(a)*Math.max(w,h), y2=h*.5+Math.sin(a)*Math.max(w,h);
-    rays += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="url(#goldRay)" stroke-width="${i%4===0?8:4}" opacity="${i%4===0?.25:.13}"/>`;
+  for(let i=0;i<36;i++){
+    const a=i*Math.PI*2/36;
+    const x1=w/2+Math.cos(a)*110, y1=h/2+Math.sin(a)*110;
+    const x2=w/2+Math.cos(a)*Math.max(w,h), y2=h/2+Math.sin(a)*Math.max(w,h);
+    rays += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#e5b85c" stroke-width="${i%3===0?5:2}" opacity="${i%3===0?.19:.09}"/>`;
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-  <defs>
-    <radialGradient id="bg"><stop stop-color="#15449d"/><stop offset=".32" stop-color="#0b2d78"/><stop offset=".72" stop-color="#06163f"/><stop offset="1" stop-color="#020617"/></radialGradient>
-    <linearGradient id="goldRay"><stop stop-color="#fff1b3" stop-opacity="0"/><stop offset=".45" stop-color="#ffd56d"/><stop offset="1" stop-color="#ff9b18" stop-opacity="0"/></linearGradient>
-    <filter id="glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#bg)"/>
-  <g filter="url(#glow)">${rays}</g>
-  ${stars}
-  </svg>`;
+  <defs><radialGradient id="bg"><stop stop-color="#16489d"/><stop offset=".42" stop-color="#0b2b70"/><stop offset="1" stop-color="#020617"/></radialGradient>
+  <filter id="g"><feGaussianBlur stdDeviation="3"/></filter></defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/><g filter="url(#g)">${rays}</g>${stars}</svg>`;
 }
 
-function sectorTriangles(radius){
+function triangles(radius){
   const t=Math.tan(Math.PI/12);
-  const r1=radius*.27,r2=radius*.55,r3=radius*.80,r4=radius;
+  const r1=radius*.27,r2=radius*.55,r3=radius*.8,r4=radius;
   const w1=r1*t,w2=r2*t,w3=r3*t,w4=r4*t;
   const O=[0,0],A=[-w1,r1],B=[w1,r1],C=[-w2,r2],D=[0,r2],E=[w2,r2],
         F=[-w3,r3],G=[-w3/3,r3],H=[w3/3,r3],I=[w3,r3],J=[-w4,r4],K=[0,r4],L=[w4,r4];
-  return [
-    [1,[O,A,B]],[2,[A,B,D]],[3,[A,D,C]],[5,[B,E,D]],[4,[C,D,G]],[7,[C,G,F]],
-    [9,[D,H,G]],[6,[D,E,H]],[11,[E,I,H]],[8,[F,G,J]],[10,[G,H,K]],[12,[H,I,L]]
-  ];
+  return [[1,[O,A,B]],[2,[A,B,D]],[3,[A,D,C]],[5,[B,E,D]],[4,[C,D,G]],[7,[C,G,F]],
+          [9,[D,H,G]],[6,[D,E,H]],[11,[E,I,H]],[8,[F,G,J]],[10,[G,H,K]],[12,[H,I,L]]];
 }
 
-function mandalaSvg(P,size){
-  const c=size/2, r=size*.44;
-  const tris=sectorTriangles(r);
-  let defs="", body="";
+function mandalaSvg(P,size) {
+  const c=size/2,r=size*.44,ts=triangles(r);
+  let defs="",body="";
   for(let e=1;e<=12;e++){
-    const [base,light,dark]=PALETTE[e];
-    defs += `<radialGradient id="e${e}" cx="30%" cy="20%"><stop stop-color="#fff" stop-opacity=".62"/><stop offset=".13" stop-color="${light}"/><stop offset=".5" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/></radialGradient>`;
+    const [base,light,dark]=COLORS[e];
+    defs += `<radialGradient id="e${e}" cx="30%" cy="20%"><stop stop-color="${light}"/><stop offset=".48" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/></radialGradient>`;
   }
   for(let s=0;s<12;s++){
     body += `<g transform="translate(${c} ${c}) rotate(${s*30})">`;
-    for(const [p,pts] of tris){
-      const points=pts.map(([x,y])=>`${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-      body += `<polygon points="${points}" fill="url(#e${P[p]})" stroke="${PALETTE[P[p]][1]}" stroke-opacity=".86" stroke-width="1.4"/>`;
+    for(const [p,pts] of ts){
+      const points=pts.map(([x,y])=>`${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+      body += `<polygon points="${points}" fill="url(#e${P[p]})" stroke="${COLORS[P[p]][1]}" stroke-opacity=".82" stroke-width="1"/>`;
     }
     body += `</g>`;
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-  <defs>${defs}<filter id="g"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-  <radialGradient id="core"><stop stop-color="#fff"/><stop offset=".16" stop-color="#fff4a8"/><stop offset=".48" stop-color="#b7ff22" stop-opacity=".85"/><stop offset="1" stop-color="#b7ff22" stop-opacity="0"/></radialGradient></defs>
-  <g filter="url(#g)">${body}</g>
-  <circle cx="${c}" cy="${c}" r="${size*.10}" fill="url(#core)"/>
-  </svg>`;
+  <defs>${defs}<radialGradient id="core"><stop stop-color="#fff"/><stop offset=".2" stop-color="#fff4a8"/><stop offset=".55" stop-color="#b7ff22" stop-opacity=".8"/><stop offset="1" stop-color="#b7ff22" stop-opacity="0"/></radialGradient></defs>
+  ${body}<circle cx="${c}" cy="${c}" r="${size*.1}" fill="url(#core)"/></svg>`;
 }
 
-function writeWav(P, seconds, filePath){
-  const sampleRate=48000, channels=2, samples=sampleRate*seconds;
-  const data=Buffer.alloc(samples*channels*2);
+async function writeWav(P,seconds,filePath){
+  const rate=22050,channels=1,count=rate*seconds;
+  const data=Buffer.alloc(count*2);
   const order=[1,2,3,4,5,6,7,8,9,10,11,12];
-  for(let i=0;i<samples;i++){
-    const t=i/sampleRate;
-    const step=Math.floor(t/1.25)%12;
-    const e=P[order[step]];
-    const f=FREQ[e];
-    const local=t%1.25;
-    const env=Math.min(1,local/.08)*Math.min(1,(1.25-local)/.32);
-    const base=Math.sin(2*Math.PI*f*t)*.42;
-    const harmonic=Math.sin(2*Math.PI*f*2*t)*.11;
-    const low=Math.sin(2*Math.PI*(f/2)*t)*.16;
-    const pad=Math.sin(2*Math.PI*(FREQ[P[5]]/4)*t)*.09;
-    const value=Math.max(-1,Math.min(1,(base+harmonic+low+pad)*env));
-    const s=Math.round(value*32767);
-    data.writeInt16LE(s,i*4);
-    data.writeInt16LE(s,i*4+2);
+  for(let i=0;i<count;i++){
+    const time=i/rate;
+    const energy=P[order[Math.floor(time/1.25)%12]];
+    const f=FREQ[energy],local=time%1.25;
+    const env=Math.min(1,local/.08)*Math.min(1,(1.25-local)/.3);
+    const value=(Math.sin(2*Math.PI*f*time)*.48+Math.sin(2*Math.PI*(f/2)*time)*.16+
+      Math.sin(2*Math.PI*(FREQ[P[5]]/4)*time)*.08)*env;
+    data.writeInt16LE(Math.round(Math.max(-1,Math.min(1,value))*32767),i*2);
   }
-  const header=Buffer.alloc(44);
-  header.write("RIFF",0); header.writeUInt32LE(36+data.length,4); header.write("WAVE",8);
-  header.write("fmt ",12); header.writeUInt32LE(16,16); header.writeUInt16LE(1,20);
-  header.writeUInt16LE(channels,22); header.writeUInt32LE(sampleRate,24);
-  header.writeUInt32LE(sampleRate*channels*2,28); header.writeUInt16LE(channels*2,32);
-  header.writeUInt16LE(16,34); header.write("data",36); header.writeUInt32LE(data.length,40);
-  return fs.writeFile(filePath,Buffer.concat([header,data]));
+  const h=Buffer.alloc(44);
+  h.write("RIFF",0);h.writeUInt32LE(36+data.length,4);h.write("WAVE",8);h.write("fmt ",12);
+  h.writeUInt32LE(16,16);h.writeUInt16LE(1,20);h.writeUInt16LE(channels,22);h.writeUInt32LE(rate,24);
+  h.writeUInt32LE(rate*channels*2,28);h.writeUInt16LE(channels*2,32);h.writeUInt16LE(16,34);
+  h.write("data",36);h.writeUInt32LE(data.length,40);
+  await fs.writeFile(filePath,Buffer.concat([h,data]));
 }
 
 function runFfmpeg(args){
   return new Promise((resolve,reject)=>{
-    const p=spawn(ffmpegPath,args,{stdio:["ignore","pipe","pipe"]});
-    let err="";
-    p.stderr.on("data",d=>err+=d.toString());
-    p.on("error",reject);
-    p.on("close",code=>code===0?resolve():reject(new Error(err.slice(-4000))));
+    const child=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
+    let stderr="";
+    child.stderr.on("data",d=>stderr+=d.toString());
+    child.on("error",reject);
+    child.on("close",code=>code===0?resolve():reject(new Error(stderr.slice(-5000))));
   });
 }
 
-app.get("/",(_req,res)=>res.json({service:"Soul Mandala server renderer",status:"ok"}));
-app.get("/health",(_req,res)=>res.json({ok:true}));
+function publicJob(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    stage: job.stage,
+    progress: job.progress,
+    error: job.error || null,
+    createdAt: job.createdAt,
+    ready: job.status === "ready"
+  };
+}
 
-app.post("/render",async(req,res)=>{
-  const birthDate=req.body?.birthDate;
-  const duration=Math.max(10,Math.min(60,Number(req.body?.duration)||60));
-  const width=720, height=900, fps=24;
-  const id=crypto.randomUUID();
-  const dir=path.join(os.tmpdir(),id);
+async function renderJob(job) {
+  activeJobId = job.id;
+  const P = calculate(job.birthDate);
+  const dir = path.join(os.tmpdir(),`mandala-${job.id}`);
+  job.dir = dir;
+  await fs.mkdir(dir,{recursive:true});
+  try {
+    job.status="running"; job.stage="Фон"; job.progress=10;
+    const bg=path.join(dir,"bg.png"), mandala=path.join(dir,"mandala.png"),
+          wav=path.join(dir,"audio.wav"), out=path.join(dir,"out.mp4");
+    await sharp(Buffer.from(backgroundSvg(480,600))).png({compressionLevel:9}).toFile(bg);
 
-  try{
-    const P=profile(birthDate);
-    await fs.mkdir(dir,{recursive:true});
-    const bg=path.join(dir,"background.png");
-    const mandala=path.join(dir,"mandala.png");
-    const audio=path.join(dir,"audio.wav");
-    const out=path.join(dir,"Soul_Mandala.mp4");
+    job.stage="Мандала"; job.progress=25;
+    await sharp(Buffer.from(mandalaSvg(P,460))).png({compressionLevel:9}).toFile(mandala);
 
-    await sharp(Buffer.from(backgroundSvg(width,height))).png().toFile(bg);
-    await sharp(Buffer.from(mandalaSvg(P,720))).png().toFile(mandala);
-    await writeWav(P,duration,audio);
+    job.stage="Музыка"; job.progress=40;
+    await writeWav(P,60,wav);
 
-    // Rotate transparent mandala over static background; encode H.264/AAC.
+    job.stage="Кодирование MP4"; job.progress=55;
     const filter=[
-      `[1:v]format=rgba,rotate=0.34*t:c=none:ow=rotw(iw):oh=roth(ih),scale=680:680[rot]`,
-      `[0:v][rot]overlay=(W-w)/2:(H-h)/2:shortest=1[v]`
+      "[1:v]format=rgba,rotate=0.34*t:c=none:ow=rotw(iw):oh=roth(ih),scale=450:450[rot]",
+      "[0:v][rot]overlay=(W-w)/2:(H-h)/2:shortest=1[v]"
     ].join(";");
-
     await runFfmpeg([
-      "-y",
-      "-loop","1","-framerate",String(fps),"-i",bg,
-      "-loop","1","-framerate",String(fps),"-i",mandala,
-      "-i",audio,
-      "-filter_complex",filter,
-      "-map","[v]","-map","2:a:0",
-      "-t",String(duration),
-      "-c:v","libx264","-preset","veryfast","-crf","22",
-      "-pix_fmt","yuv420p","-profile:v","high","-level","4.0",
-      "-c:a","aac","-b:a","160k","-ar","48000","-ac","2",
-      "-movflags","+faststart",
-      out
+      "-y","-loop","1","-framerate","15","-i",bg,
+      "-loop","1","-framerate","15","-i",mandala,
+      "-i",wav,"-filter_complex",filter,"-map","[v]","-map","2:a:0","-t","60",
+      "-c:v","libx264","-preset","ultrafast","-tune","stillimage","-crf","30",
+      "-pix_fmt","yuv420p","-r","15","-g","30",
+      "-c:a","aac","-b:a","72k","-ar","22050","-ac","1","-movflags","+faststart",out
     ]);
 
-    const stat=await fs.stat(out);
-    const safe=birthDate.split("-").reverse().join("-");
-    res.setHeader("Content-Type","video/mp4");
-    res.setHeader("Content-Disposition",`attachment; filename="Soul_Mandala_${safe}_60s.mp4"`);
-    res.setHeader("Content-Length",String(stat.size));
-    res.sendFile(out,async()=>{
-      await fs.rm(dir,{recursive:true,force:true});
-    });
-  }catch(error){
-    console.error(error);
+    job.outputPath=out; job.status="ready"; job.stage="Готово"; job.progress=100;
+    job.expiresAt=Date.now()+30*60*1000;
+  } catch (error) {
+    console.error(`[${job.id}]`,error);
+    job.status="error"; job.stage="Ошибка"; job.error=String(error?.message||error); job.progress=0;
     await fs.rm(dir,{recursive:true,force:true});
-    res.status(500).json({error:"Не удалось создать MP4.",details:String(error.message||error)});
+  } finally {
+    activeJobId=null;
   }
+}
+
+setInterval(async()=>{
+  const now=Date.now();
+  for(const [id,job] of jobs){
+    if(job.expiresAt && job.expiresAt<now){
+      if(job.dir) await fs.rm(job.dir,{recursive:true,force:true});
+      jobs.delete(id);
+    }
+  }
+},60000).unref();
+
+app.get("/",(_req,res)=>res.json({service:"Soul Mandala Job Renderer",status:"ok",mode:"async-light"}));
+app.get("/health",(_req,res)=>res.json({ok:true,mode:"async-light",busy:Boolean(activeJobId)}));
+
+app.post("/jobs",(req,res)=>{
+  const birthDate=req.body?.birthDate;
+  try { calculate(birthDate); } catch { return res.status(400).json({error:"Неверная дата рождения."}); }
+
+  if(activeJobId){
+    return res.status(429).json({error:"Сервер уже создаёт другое видео. Повтори через несколько минут."});
+  }
+
+  const id=crypto.randomUUID();
+  const job={id,birthDate,status:"queued",stage:"В очереди",progress:0,error:null,createdAt:Date.now()};
+  jobs.set(id,job);
+  res.status(202).json(publicJob(job));
+  setImmediate(()=>renderJob(job));
 });
 
-app.listen(PORT,()=>console.log(`Server renderer listening on ${PORT}`));
+app.get("/jobs/:id",(req,res)=>{
+  const job=jobs.get(req.params.id);
+  if(!job) return res.status(404).json({error:"Задание не найдено или срок хранения истёк."});
+  res.json(publicJob(job));
+});
+
+app.get("/jobs/:id/download",(req,res)=>{
+  const job=jobs.get(req.params.id);
+  if(!job) return res.status(404).json({error:"Задание не найдено."});
+  if(job.status!=="ready" || !job.outputPath) return res.status(409).json({error:"Видео ещё не готово."});
+  const safe=job.birthDate.split("-").reverse().join("-");
+  res.download(job.outputPath,`Soul_Mandala_${safe}_60s.mp4`,async err=>{
+    if(err) console.error("download",err);
+  });
+});
+
+app.use((error,_req,res,_next)=>{
+  console.error("GLOBAL",error);
+  res.status(500).json({error:"Ошибка сервера.",details:String(error?.message||error)});
+});
+
+app.listen(PORT,()=>console.log(`ASYNC LIGHT renderer listening on ${PORT}`));
