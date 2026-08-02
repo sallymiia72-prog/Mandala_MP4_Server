@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Живая Мандала Души — Premium</title>
+<title>Живая Мандала Души — Server MP4 60s</title>
 <style>
 :root{--bg:#020617;--panel:#04091d;--gold:#e8c66a;--text:#fff9e8}
 *{box-sizing:border-box}
@@ -14,7 +14,7 @@ body{display:flex;justify-content:center;overflow-x:hidden}
 .control{grid-column:1/-1;display:flex;flex-direction:column;gap:5px}
 label{color:var(--gold);font-size:13px;font-weight:700}
 input,button{min-height:44px;border:1px solid rgba(232,198,106,.72);border-radius:11px;background:linear-gradient(180deg,#17479f,#0b2b68);color:var(--text);padding:9px 12px;font:700 14px Arial,sans-serif}
-input{font-weight:500}button{cursor:pointer;touch-action:manipulation}button:active{filter:brightness(1.2)}button:disabled{opacity:.6}.premiumSoon{grid-column:1/-1;background:linear-gradient(180deg,#5b3b80,#2a1748);color:#ead9ff}
+input{font-weight:500}button{cursor:pointer;touch-action:manipulation}button:active{filter:brightness(1.2)}button:disabled{opacity:.6}.premiumSoon{grid-column:1/-1;background:linear-gradient(180deg,#5b3b80,#2a1748);color:#ead9ff}.serverMp4{grid-column:1/-1;background:linear-gradient(180deg,#b07a12,#7c4d00);color:#fff9e8}
 .stage{position:relative;min-height:calc(100vh - 110px);height:100%;display:grid;place-items:stretch;overflow:hidden;background:#020617}
 canvas{display:block;width:100%;height:100%;min-height:0}
 .status{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.38);color:rgba(255,245,214,.82);font-size:11px;white-space:nowrap;pointer-events:none}
@@ -27,7 +27,7 @@ canvas{display:block;width:100%;height:100%;min-height:0}
 <div class="control"><label for="birth">Дата рождения</label><input id="birth" type="date" autocomplete="off"></div>
 <button id="playSound" type="button">Воспроизвести мелодию</button>
 <button id="downloadImage" type="button">Скачать изображение</button>
-<button id="downloadVideo" class="premiumSoon" type="button">MP4 Premium · скоро</button>
+<button id="downloadVideo" class="serverMp4" type="button">Создать MP4 · 60 сек</button>
 </header>
 <main class="stage">
 <canvas id="mandala" width="1080" height="1350"></canvas>
@@ -36,6 +36,8 @@ canvas{display:block;width:100%;height:100%;min-height:0}
 </div>
 <script>
 "use strict";
+const MANDALA_RENDER_URL="https://mandala-mp4-server-1.onrender.com";
+const MP4_DURATION_SECONDS=60;
 const PALETTE=Object.freeze({
 1:{base:"#ff163f",light:"#ff9aae",dark:"#740018",glow:"#ff3159"},2:{base:"#ff7200",light:"#ffbd70",dark:"#842800",glow:"#ff8b20"},3:{base:"#ffd600",light:"#fff292",dark:"#8b6400",glow:"#ffe64d"},4:{base:"#79e600",light:"#c4ff7d",dark:"#337600",glow:"#9dff34"},5:{base:"#008b45",light:"#5de69a",dark:"#003c20",glow:"#12d06b"},6:{base:"#00d5ca",light:"#86fff6",dark:"#00615c",glow:"#2af4e8"},7:{base:"#25b8ff",light:"#a5e5ff",dark:"#07578e",glow:"#53c9ff"},8:{base:"#1759ff",light:"#98b5ff",dark:"#071e7a",glow:"#4679ff"},9:{base:"#7d28ff",light:"#c9a1ff",dark:"#35106c",glow:"#9d55ff"},10:{base:"#b35aff",light:"#e0b6ff",dark:"#581b80",glow:"#c77cff"},11:{base:"#ff4c9b",light:"#ffafd2",dark:"#7a1647",glow:"#ff69af"},12:{base:"#ef00cf",light:"#ff93ec",dark:"#70005e",glow:"#ff35df"}});
 const SOUND_MAP=Object.freeze({1:{f:261.63},2:{f:293.66},3:{f:329.63},4:{f:349.23},5:{f:392},6:{f:440},7:{f:493.88},8:{f:523.25},9:{f:587.33},10:{f:659.25},11:{f:698.46},12:{f:783.99}});
@@ -355,9 +357,108 @@ imageButton.addEventListener("click",async()=>{
     alert("Не удалось сохранить изображение.");
   }
 });
-videoButton.addEventListener("click",()=>{
-  statusNode.textContent="MP4 Premium подключим после запуска сервера";
-  setTimeout(()=>statusNode.textContent=profile?"Живая Мандала Души":"Введите дату рождения",2200);
+videoButton.addEventListener("click",async()=>{
+  if(!profile || !birthInput.value){
+    alert("Сначала введи дату рождения.");
+    return;
+  }
+
+  if(videoButton.dataset.busy==="1") return;
+
+  const originalText=videoButton.textContent;
+  videoButton.dataset.busy="1";
+  videoButton.disabled=true;
+  imageButton.disabled=true;
+  playSoundButton.disabled=true;
+  birthInput.disabled=true;
+
+  videoButton.textContent="Подготовка сервера…";
+  statusNode.textContent="Сервер может просыпаться до минуты. Не закрывай страницу.";
+
+  let progressTimer=null;
+  let seconds=0;
+
+  try{
+    progressTimer=setInterval(()=>{
+      seconds++;
+      if(seconds<55){
+        videoButton.textContent=`Подготовка: ${seconds} сек`;
+      }else{
+        videoButton.textContent="Создаётся MP4…";
+        statusNode.textContent="Сервер создаёт персональную мандалу и музыку.";
+      }
+    },1000);
+
+    const response=await fetch(`${MANDALA_RENDER_URL}/render`,{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "Accept":"video/mp4,application/json"
+      },
+      body:JSON.stringify({
+        birthDate:birthInput.value,
+        duration:MP4_DURATION_SECONDS
+      })
+    });
+
+    if(!response.ok){
+      let message=`Ошибка сервера: ${response.status}`;
+      try{
+        const data=await response.json();
+        message=data.error||data.details||message;
+      }catch(_){}
+      throw new Error(message);
+    }
+
+    const contentType=response.headers.get("content-type")||"";
+    if(!contentType.includes("video/mp4")){
+      throw new Error("Сервер вернул файл неподходящего формата.");
+    }
+
+    videoButton.textContent="Скачивание MP4…";
+    statusNode.textContent="Видео готово. Начинается скачивание.";
+
+    const mp4Blob=await response.blob();
+    if(mp4Blob.size<1000){
+      throw new Error("Получен пустой видеофайл.");
+    }
+
+    const safeDate=birthInput.value.split("-").reverse().join("-");
+    const objectUrl=URL.createObjectURL(mp4Blob);
+    const link=document.createElement("a");
+
+    link.href=objectUrl;
+    link.download=`Soul_Mandala_${safeDate}_60s.mp4`;
+    link.style.display="none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),120000);
+
+    videoButton.textContent="MP4 сохранён ✓";
+    statusNode.textContent="60-секундное видео сохранено";
+    setTimeout(()=>{
+      videoButton.textContent=originalText;
+      statusNode.textContent="Живая Мандала Души";
+    },3000);
+  }catch(error){
+    console.error("Server MP4 error:",error);
+    alert(
+      "Не удалось создать MP4.\n\n"+
+      (error?.message||"Неизвестная ошибка")+
+      "\n\nПопробуй ещё раз через минуту и не закрывай страницу."
+    );
+    videoButton.textContent=originalText;
+    statusNode.textContent="MP4 не создан — попробуй ещё раз";
+  }finally{
+    if(progressTimer) clearInterval(progressTimer);
+    videoButton.dataset.busy="0";
+    videoButton.disabled=false;
+    imageButton.disabled=false;
+    playSoundButton.disabled=false;
+    birthInput.disabled=false;
+  }
 });
 window.addEventListener("resize",resizeCanvas);window.addEventListener("orientationchange",()=>setTimeout(resizeCanvas,180));resizeCanvas();requestAnimationFrame(render);
 </script>
