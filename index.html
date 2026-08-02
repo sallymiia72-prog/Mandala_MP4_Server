@@ -458,8 +458,18 @@ async function loadFfmpeg(){
     statusNode.textContent="Конвертация в совместимый MP4 — не закрывай страницу";
   });
 
-  const coreBase="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
+  const ffmpegBase="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd";
+  const coreBase="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
+
+  // Важно: основной worker ffmpeg тоже превращаем в Blob URL.
+  // Иначе Chrome блокирует Worker, загруженный напрямую с CDN.
+  const classWorkerURL=await toBlobURL(
+    `${ffmpegBase}/814.ffmpeg.js`,
+    "text/javascript"
+  );
+
   await ffmpeg.load({
+    classWorkerURL,
     coreURL:await toBlobURL(`${coreBase}/ffmpeg-core.js`,"text/javascript"),
     wasmURL:await toBlobURL(`${coreBase}/ffmpeg-core.wasm`,"application/wasm")
   });
@@ -634,7 +644,7 @@ videoButton.addEventListener("click",async()=>{
     }
 
     try{
-      videoButton.textContent="Загрузка модуля MP4…";
+      videoButton.textContent="Загрузка модуля MP4 v2…";
       statusNode.textContent="Подготавливается конвертация MP4";
       const webmBlob=new Blob(chunks,{type});
       await convertWebmToMp4(webmBlob,safeDate);
