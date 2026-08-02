@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: soul-mandala-mp4
+    name: soul-mandala-render
     runtime: node
     plan: starter
     buildCommand: npm install

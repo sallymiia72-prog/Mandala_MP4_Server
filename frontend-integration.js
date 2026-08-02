@@ -1,53 +1,47 @@
-/*
-Подключение Render-конвертера к существующему генератору.
 
-1. Замени URL ниже адресом Render после развёртывания.
-2. После завершения browser MediaRecorder передай Blob в convertToMp4().
-3. Функция скачает настоящий MP4 H.264/AAC.
-*/
+const MANDALA_RENDER_URL = "https://YOUR-SERVICE.onrender.com";
 
-const MP4_API_URL = "https://YOUR-RENDER-SERVICE.onrender.com";
-
-async function convertToMp4(webmBlob, birthDate, onProgress = () => {}) {
-  const safeDate = birthDate.split("-").reverse().join("-");
-  const formData = new FormData();
-
-  formData.append(
-    "video",
-    webmBlob,
-    `Soul_Mandala_${safeDate}.webm`
-  );
-  formData.append(
-    "filename",
-    `Soul_Mandala_${safeDate}_120s`
-  );
-
-  onProgress("Конвертация в MP4…");
-
-  const response = await fetch(`${MP4_API_URL}/convert`, {
-    method: "POST",
-    body: formData
-  });
-
-  if (!response.ok) {
-    let message = "Сервер не смог создать MP4.";
-    try {
-      const data = await response.json();
-      message = data.error || message;
-    } catch (_) {}
-    throw new Error(message);
+async function downloadServerMp4(birthDate, button, statusNode){
+  if(!birthDate){
+    alert("Сначала введи дату рождения.");
+    return;
   }
 
-  const mp4Blob = await response.blob();
-  const url = URL.createObjectURL(mp4Blob);
-  const link = document.createElement("a");
+  const oldText=button.textContent;
+  button.disabled=true;
+  button.textContent="Создаётся MP4…";
+  statusNode.textContent="Сервер создаёт видео. Не закрывай страницу.";
 
-  link.href = url;
-  link.download = `Soul_Mandala_${safeDate}_120s.mp4`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
+  try{
+    const response=await fetch(`${MANDALA_RENDER_URL}/render`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({birthDate,duration:60})
+    });
 
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  onProgress("MP4 сохранён");
+    if(!response.ok){
+      const data=await response.json().catch(()=>({}));
+      throw new Error(data.error||"Не удалось создать MP4.");
+    }
+
+    const blob=await response.blob();
+    const url=URL.createObjectURL(blob);
+    const safeDate=birthDate.split("-").reverse().join("-");
+    const link=document.createElement("a");
+    link.href=url;
+    link.download=`Soul_Mandala_${safeDate}_60s.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+
+    statusNode.textContent="MP4 сохранён";
+  }catch(error){
+    console.error(error);
+    alert(error.message);
+    statusNode.textContent="Ошибка создания MP4";
+  }finally{
+    button.disabled=false;
+    button.textContent=oldText;
+  }
 }
