@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Живая Мандала Души — MP4</title>
+<title>Живая Мандала Души — Premium</title>
 <style>
 :root{--bg:#020617;--panel:#04091d;--gold:#e8c66a;--text:#fff9e8}
 *{box-sizing:border-box}
@@ -14,7 +14,7 @@ body{display:flex;justify-content:center;overflow-x:hidden}
 .control{grid-column:1/-1;display:flex;flex-direction:column;gap:5px}
 label{color:var(--gold);font-size:13px;font-weight:700}
 input,button{min-height:44px;border:1px solid rgba(232,198,106,.72);border-radius:11px;background:linear-gradient(180deg,#17479f,#0b2b68);color:var(--text);padding:9px 12px;font:700 14px Arial,sans-serif}
-input{font-weight:500}button{cursor:pointer;touch-action:manipulation}button:active{filter:brightness(1.2)}button:disabled{opacity:.6}
+input{font-weight:500}button{cursor:pointer;touch-action:manipulation}button:active{filter:brightness(1.2)}button:disabled{opacity:.6}.premiumSoon{grid-column:1/-1;background:linear-gradient(180deg,#5b3b80,#2a1748);color:#ead9ff}
 .stage{position:relative;min-height:calc(100vh - 110px);height:100%;display:grid;place-items:stretch;overflow:hidden;background:#020617}
 canvas{display:block;width:100%;height:100%;min-height:0}
 .status{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.38);color:rgba(255,245,214,.82);font-size:11px;white-space:nowrap;pointer-events:none}
@@ -24,17 +24,16 @@ canvas{display:block;width:100%;height:100%;min-height:0}
 <body>
 <div class="app">
 <header class="toolbar">
-<div class="control"><label for="birth">Дата рождения</label><input id="birth" type="date" name="mandala_birth_input" autocomplete="off" data-lpignore="true"></div>
-<button id="downloadVideo" type="button">Создать MP4 + музыку</button>
+<div class="control"><label for="birth">Дата рождения</label><input id="birth" type="date" autocomplete="off"></div>
+<button id="playSound" type="button">Воспроизвести мелодию</button>
 <button id="downloadImage" type="button">Скачать изображение</button>
+<button id="downloadVideo" class="premiumSoon" type="button">MP4 Premium · скоро</button>
 </header>
 <main class="stage">
 <canvas id="mandala" width="1080" height="1350"></canvas>
-<div class="status" id="status">Версия 3.0 · Введите дату рождения</div>
+<div class="status" id="status">Коснись самой мандалы — включится звук</div>
 </main>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
 <script>
 "use strict";
 const PALETTE=Object.freeze({
@@ -42,13 +41,9 @@ const PALETTE=Object.freeze({
 const SOUND_MAP=Object.freeze({1:{f:261.63},2:{f:293.66},3:{f:329.63},4:{f:349.23},5:{f:392},6:{f:440},7:{f:493.88},8:{f:523.25},9:{f:587.33},10:{f:659.25},11:{f:698.46},12:{f:783.99}});
 function fold12(value){let n=Math.abs(Number(value))||0;while(n>12)n=String(n).split("").reduce((s,d)=>s+Number(d),0);return n===0?12:n}
 function calculateSoulProfile(dateString){
-  if(!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)){
-    return null;
-  }
-
+  if(!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return null;
   const [year,month,day]=dateString.split("-").map(Number);
-  if(!year || !month || !day) return null;
-
+  if(!year||!month||!day) return null;
   const P={};
   P[1]=fold12(day);
   P[2]=fold12(month);
@@ -62,12 +57,11 @@ function calculateSoulProfile(dateString){
   P[10]=fold12(P[7]+P[8]);
   P[11]=fold12(P[7]+P[9]);
   P[12]=fold12(P[8]+P[9]);
-
   return {birthDate:dateString,positions:P};
 }
 function createSectorMesh(radius){const t=Math.tan(Math.PI/12),r1=radius*.27,r2=radius*.55,r3=radius*.80,r4=radius,w1=r1*t,w2=r2*t,w3=r3*t,w4=r4*t,O=[0,0],A=[-w1,r1],B=[w1,r1],C=[-w2,r2],D=[0,r2],E=[w2,r2],F=[-w3,r3],G=[-w3/3,r3],H=[w3/3,r3],I=[w3,r3],J=[-w4,r4],K=[0,r4],L=[w4,r4];return[{p:1,pts:[O,A,B]},{p:2,pts:[A,B,D]},{p:3,pts:[A,D,C]},{p:5,pts:[B,E,D]},{p:4,pts:[C,D,G]},{p:7,pts:[C,G,F]},{p:9,pts:[D,H,G]},{p:6,pts:[D,E,H]},{p:11,pts:[E,I,H]},{p:8,pts:[F,G,J]},{p:10,pts:[G,H,K]},{p:12,pts:[H,I,L]}]}
-const canvas=document.getElementById("mandala"),ctx=canvas.getContext("2d",{alpha:false}),birthInput=document.getElementById("birth"),videoButton=document.getElementById("downloadVideo"),imageButton=document.getElementById("downloadImage"),statusNode=document.getElementById("status");
-let profile=calculateSoulProfile(birthInput.value),startedAt=performance.now();
+const canvas=document.getElementById("mandala"),ctx=canvas.getContext("2d",{alpha:false}),birthInput=document.getElementById("birth"),videoButton=document.getElementById("downloadVideo"),playSoundButton=document.getElementById("playSound"),imageButton=document.getElementById("downloadImage"),statusNode=document.getElementById("status");
+let profile=null,startedAt=performance.now();
 
 // AUDIO
 const AC=window.AudioContext||window.webkitAudioContext;let ac=null,master=null,dest=null,timer=0,soundOn=false;
@@ -75,14 +69,9 @@ function setupAudio(){if(!AC)return false;if(!ac){ac=new AC();master=ac.createGa
 function oscTone(f,start,dur,type,vol,attack=.03,release=.8,detune=0){const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f,start);o.detune.setValueAtTime(detune,start);g.gain.setValueAtTime(.0001,start);g.gain.exponentialRampToValueAtTime(Math.max(.0002,vol),start+attack);g.gain.setValueAtTime(Math.max(.0002,vol),Math.max(start+attack,start+dur-release));g.gain.exponentialRampToValueAtTime(.0001,start+dur);o.connect(g);g.connect(master);o.start(start);o.stop(start+dur+.05)}
 function noise(start,dur,vol,cut){const len=Math.floor(ac.sampleRate*dur),b=ac.createBuffer(1,len,ac.sampleRate),d=b.getChannelData(0);for(let i=0;i<len;i++)d[i]=Math.random()*2-1;const s=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();s.buffer=b;f.type="lowpass";f.frequency.value=cut;g.gain.setValueAtTime(vol,start);g.gain.exponentialRampToValueAtTime(.0001,start+dur);s.connect(f);f.connect(g);g.connect(master);s.start(start);s.stop(start+dur+.05)}
 function playEnergy(e,delay=0,level=1){if(!ac)return;const t=ac.currentTime+delay,f=SOUND_MAP[e].f,v=.095*level;switch(e){case 1:oscTone(f/4,t,2.8,"sine",v*1.2,.01,1.5);oscTone(f/8,t,3.4,"sine",v*.7,.05,1.8);noise(t,.22,v*.7,180);break;case 2:noise(t,1.8,v*.18,1800);oscTone(f*2,t+.05,2.5,"sine",v*.58,.01,1.8);oscTone(f*3,t+.14,2.1,"sine",v*.22,.01,1.5);break;case 3:oscTone(f,t,3,"sine",v*.85,.22,1);oscTone(f*2,t,2.5,"sine",v*.1,.2,1);break;case 4:oscTone(f,t,3.5,"sawtooth",v*.2,.65,1.4,-5);oscTone(f,t,3.5,"sawtooth",v*.2,.65,1.4,5);oscTone(f*1.5,t+.1,3,"triangle",v*.16,.5,1.2);break;case 5:oscTone(f/2,t,3.8,"triangle",v*.52,.04,2);oscTone(f,t,2.8,"sine",v*.32,.02,1.7);oscTone(f*2,t,1.7,"sine",v*.1,.01,1.2);break;case 6:[1,1.5,2,3].forEach((m,i)=>oscTone(f*m,t+i*.07,2.7-i*.2,"triangle",v*(.55/(i+1)),.01,1.9));break;case 7:oscTone(f/2,t,3.6,"sawtooth",v*.24,.45,1.5);oscTone(f,t,3.3,"triangle",v*.3,.4,1.3);oscTone(f*1.5,t+.08,3,"sine",v*.13,.35,1.2);break;case 8:[1,2.01,2.72,4.05].forEach((m,i)=>oscTone(f*m,t,5-i*.3,"sine",v*(.68/(i+1)),.02,3.6));break;case 9:oscTone(f/2,t,4.5,"sine",v*.4,.8,1.8,-8);oscTone(f/2,t,4.5,"triangle",v*.24,.8,1.8,8);oscTone(f*1.5,t+.2,3.8,"sine",v*.14,.8,1.5);break;case 10:[.5,1,1.25,1.5].forEach((m,i)=>oscTone(f*m,t,4.3,"sine",v*(.38-i*.04),.9,1.7,(i-1.5)*4));break;case 11:[1,2,3,4.2].forEach((m,i)=>oscTone(f*m,t+i*.04,4-i*.25,"sine",v*(.58/(i+1)),.01,3));oscTone(f/2,t,4.4,"triangle",v*.15,.6,1.8);break;case 12:[.5,1,1.5,2,3].forEach((m,i)=>oscTone(f*m,t+i*.025,4.8-i*.22,"sine",v*(.34/(1+i*.28)),1,2,(i-2)*3));break}}
-function startSequence(){if(!ac||!profile)return;if(timer)clearInterval(timer);const order=[1,2,3,4,5,6,7,8,9,10,11,12];order.forEach((p,i)=>playEnergy(profile.positions[p],i*.28,.78));let step=0;timer=setInterval(()=>{const p=order[step%12];playEnergy(profile.positions[p],0,.46);if(step%4===0)playEnergy(profile.positions[order[(step+4)%12]],.15,.22);step++},1050)}
-async function ensureAudio(){
+function startSequence(){if(!ac)return;if(timer)clearInterval(timer);const order=[1,2,3,4,5,6,7,8,9,10,11,12];order.forEach((p,i)=>playEnergy(profile.positions[p],i*.28,.78));let step=0;timer=setInterval(()=>{const p=order[step%12];playEnergy(profile.positions[p],0,.46);if(step%4===0)playEnergy(profile.positions[order[(step+4)%12]],.15,.22);step++},1050)}
+async function ensureAudio(event){if(!profile){statusNode.textContent="Сначала введи дату рождения";return false;}
   try{
-    if(!profile || !birthInput.value){
-      statusNode.textContent="Сначала введи дату рождения";
-      return false;
-    }
-
     if(!setupAudio()){
       statusNode.textContent="Звук не поддерживается этим браузером";
       return false;
@@ -93,7 +82,7 @@ async function ensureAudio(){
     }
 
     if(ac.state!=="running"){
-      statusNode.textContent="Коснись мандалы ещё раз";
+      statusNode.textContent="Коснись мандалы ещё раз для запуска звука";
       return false;
     }
 
@@ -101,39 +90,39 @@ async function ensureAudio(){
       soundOn=true;
       startedAt=performance.now();
 
+      // Сразу слышимый подтверждающий аккорд внутри пользовательского жеста.
+      const now=ac.currentTime+.02;
       const first=profile.positions[1];
       const fifth=profile.positions[5];
       const ninth=profile.positions[9];
-
       playEnergy(first,.02,1.35);
       playEnergy(fifth,.16,1.05);
       playEnergy(ninth,.30,.9);
 
-      setTimeout(()=>{
-        if(profile) startSequence();
-      },650);
-
+      setTimeout(startSequence,650);
       statusNode.textContent="Персональная мандала звучит";
-      setTimeout(()=>statusNode.textContent="Звук включён",1800);
+      setTimeout(()=>statusNode.textContent="Коснись мандалы — звук включён",2200);
+    }else{
+      statusNode.textContent="Звук уже включён";
+      setTimeout(()=>statusNode.textContent="Коснись мандалы — звук включён",1200);
     }
-
     return true;
   }catch(error){
     console.error("Audio start error:",error);
-    statusNode.textContent="Не удалось включить звук";
+    statusNode.textContent="Не удалось включить звук. Коснись ещё раз";
     return false;
   }
 }
 
 function bindAudioStart(target){
-  target.addEventListener("pointerup",event=>{
-    event.preventDefault();
-    ensureAudio();
-  },{passive:false});
+  ["pointerup","touchend","click"].forEach(type=>{
+    target.addEventListener(type,ensureAudio,{passive:false});
+  });
 }
 
 bindAudioStart(canvas);
-window.addEventListener("keydown",()=>ensureAudio());
+bindAudioStart(document.body);
+window.addEventListener("keydown",ensureAudio);
 
 function hexToRgb(hex){const n=parseInt(hex.slice(1),16);return{r:(n>>16)&255,g:(n>>8)&255,b:n&255}}
 function rgba(hex,a){const{r,g,b}=hexToRgb(hex);return`rgba(${r},${g},${b},${a})`}
@@ -270,32 +259,6 @@ function drawPremiumGold(w,h,time,cx,cy,radius,reveal){
   ctx.restore();
 }
 
-
-function renderExportFrame(time){
-  const w=canvas.clientWidth;
-  const h=canvas.clientHeight;
-
-  drawBackground(w,h,time);
-
-  const cx=w/2;
-  const cy=h*.475;
-  const radius=Math.min(w,h)*.455;
-  const pulse=.5+.5*Math.sin(time*.00225);
-
-  drawPremiumGold(w,h,time,cx,cy,radius,1);
-
-  ctx.save();
-  ctx.translate(cx,cy);
-  ctx.rotate(time*.00185);
-  ctx.scale(.985+.015*pulse,.985+.015*pulse);
-  ctx.globalAlpha=1;
-
-  drawMandala(profile.positions,radius,time,1);
-  drawCore(radius,time);
-
-  ctx.restore();
-}
-
 function render(time){
   const w=canvas.clientWidth;
   const h=canvas.clientHeight;
@@ -306,15 +269,13 @@ function render(time){
     ctx.save();
     ctx.textAlign="center";
     ctx.fillStyle="rgba(244,213,124,.96)";
-    ctx.font="700 24px Arial";
+    ctx.font="700 25px Arial";
     ctx.fillText("ЖИВАЯ МАНДАЛА ДУШИ",w/2,h*.43);
-
     ctx.fillStyle="rgba(255,249,229,.78)";
     ctx.font="500 15px Arial";
-    ctx.fillText("Введите дату рождения",w/2,h*.485);
-    ctx.fillText("и персональная мандала проявится",w/2,h*.52);
+    ctx.fillText("Введите дату рождения",w/2,h*.49);
+    ctx.fillText("и персональная мандала проявится",w/2,h*.525);
     ctx.restore();
-
     requestAnimationFrame(render);
     return;
   }
@@ -342,355 +303,63 @@ function render(time){
   ctx.restore();
   requestAnimationFrame(render);
 }
-let generationId=0;
-let activeRecorder=null;
-let activeRecordingStream=null;
-
-function syncProfileFromInput(showStatus=true){
-  const value=birthInput.value;
-  const nextProfile=calculateSoulProfile(value);
-
-  if(!nextProfile){
-    profile=null;
-    if(timer){
-      clearInterval(timer);
-      timer=0;
-    }
-    soundOn=false;
-    if(showStatus) statusNode.textContent="Введите дату рождения";
-    return false;
-  }
-
-  profile=nextProfile;
+function rebuildMandala(){
+  profile=calculateSoulProfile(birthInput.value);
   startedAt=performance.now();
 
   if(timer){
     clearInterval(timer);
     timer=0;
   }
+  soundOn=false;
 
-  // Новая дата — новая музыкальная последовательность.
-  if(soundOn && ac && ac.state==="running"){
-    startSequence();
-  }
-
-  if(showStatus){
-    const displayDate=value.split("-").reverse().join(".");
-    statusNode.textContent=`Мандала обновлена: ${displayDate}`;
-    setTimeout(()=>statusNode.textContent="Коснись мандалы — включится звук",1600);
-  }
-  return true;
-}
-
-birthInput.addEventListener("input",()=>syncProfileFromInput(true));
-birthInput.addEventListener("change",()=>syncProfileFromInput(true));
-
-imageButton.addEventListener("click",async()=>{
-  if(!syncProfileFromInput(false)){
-    alert("Сначала введи дату рождения.");
+  if(!profile){
+    statusNode.textContent="Введите дату рождения";
     return;
   }
 
-  try{
-    const exportTime=performance.now();
-    renderExportFrame(exportTime);
+  statusNode.textContent=`Мандала проявлена: ${birthInput.value.split("-").reverse().join(".")}`;
+  setTimeout(()=>statusNode.textContent="Коснись мандалы или включи мелодию",1600);
+}
 
-    const safeDate=birthInput.value.split("-").reverse().join("-");
+birthInput.addEventListener("input",rebuildMandala);
+birthInput.addEventListener("change",rebuildMandala);
+
+playSoundButton.addEventListener("click",async()=>{
+  if(!profile){
+    alert("Сначала введи дату рождения.");
+    return;
+  }
+  const ok=await ensureAudio();
+  if(ok!==false){
+    statusNode.textContent="Мелодия Души звучит";
+  }
+});
+
+imageButton.addEventListener("click",async()=>{
+  if(!profile){
+    alert("Сначала введи дату рождения.");
+    return;
+  }
+  try{
     const link=document.createElement("a");
+    const safeDate=birthInput.value.split("-").reverse().join("-");
     link.download=`Soul_Mandala_${safeDate}.png`;
     link.href=canvas.toDataURL("image/png",1);
     document.body.appendChild(link);
     link.click();
     link.remove();
-
-    statusNode.textContent=`PNG сохранён: ${safeDate}`;
-    setTimeout(()=>statusNode.textContent="Коснись мандалы — включится звук",1800);
-  }catch(error){
-    console.error(error);
+    statusNode.textContent="Изображение сохранено";
+    setTimeout(()=>statusNode.textContent="Живая Мандала Души",1800);
+  }catch(e){
     alert("Не удалось сохранить изображение.");
   }
 });
-
-
-let readyVideoUrl=null;
-let readyVideoName="";
-let recordingInProgress=false;
-let ffmpegInstance=null;
-let ffmpegLoaded=false;
-
-function clearReadyVideo(){
-  if(readyVideoUrl){
-    URL.revokeObjectURL(readyVideoUrl);
-    readyVideoUrl=null;
-    readyVideoName="";
-  }
-}
-
-function downloadReadyVideo(){
-  if(!readyVideoUrl) return false;
-
-  const link=document.createElement("a");
-  link.href=readyVideoUrl;
-  link.download=readyVideoName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-
-  statusNode.textContent="MP4 отправлен на скачивание";
-  videoButton.textContent="Создать MP4 + музыку";
-  return true;
-}
-
-async function loadFfmpeg(){
-  if(ffmpegLoaded && ffmpegInstance) return ffmpegInstance;
-
-  if(!window.FFmpegWASM || !window.FFmpegUtil){
-    throw new Error("Модуль MP4 не загрузился. Проверь интернет и обнови страницу.");
-  }
-
-  const {FFmpeg}=window.FFmpegWASM;
-  const {toBlobURL}=window.FFmpegUtil;
-  const ffmpeg=new FFmpeg();
-
-  ffmpeg.on("progress",({progress})=>{
-    const percent=Math.max(0,Math.min(100,Math.round(progress*100)));
-    videoButton.textContent=`Создание MP4: ${percent}%`;
-    statusNode.textContent="Конвертация в совместимый MP4 — не закрывай страницу";
-  });
-
-  const ffmpegBase="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd";
-  const coreBase="https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd";
-
-  // Важно: основной worker ffmpeg тоже превращаем в Blob URL.
-  // Иначе Chrome блокирует Worker, загруженный напрямую с CDN.
-  const classWorkerURL=await toBlobURL(
-    `${ffmpegBase}/814.ffmpeg.js`,
-    "text/javascript"
-  );
-
-  await ffmpeg.load({
-    classWorkerURL,
-    coreURL:await toBlobURL(`${coreBase}/ffmpeg-core.js`,"text/javascript"),
-    wasmURL:await toBlobURL(`${coreBase}/ffmpeg-core.wasm`,"application/wasm")
-  });
-
-  ffmpegInstance=ffmpeg;
-  ffmpegLoaded=true;
-  return ffmpeg;
-}
-
-async function convertWebmToMp4(webmBlob,safeDate){
-  const ffmpeg=await loadFfmpeg();
-  const {fetchFile}=window.FFmpegUtil;
-  const inputName=`mandala_${Date.now()}.webm`;
-  const outputName=`mandala_${Date.now()}.mp4`;
-
-  await ffmpeg.writeFile(inputName,await fetchFile(webmBlob));
-
-  await ffmpeg.exec([
-    "-i",inputName,
-    "-c:v","libx264",
-    "-preset","ultrafast",
-    "-crf","25",
-    "-pix_fmt","yuv420p",
-    "-profile:v","main",
-    "-c:a","aac",
-    "-b:a","128k",
-    "-ar","48000",
-    "-ac","2",
-    "-movflags","+faststart",
-    outputName
-  ]);
-
-  const data=await ffmpeg.readFile(outputName);
-  await Promise.allSettled([
-    ffmpeg.deleteFile(inputName),
-    ffmpeg.deleteFile(outputName)
-  ]);
-
-  const mp4Blob=new Blob([data.buffer],{type:"video/mp4"});
-  clearReadyVideo();
-  readyVideoUrl=URL.createObjectURL(mp4Blob);
-  readyVideoName=`Soul_Mandala_${safeDate}_120s.mp4`;
-}
-
-videoButton.addEventListener("click",async()=>{
-  if(readyVideoUrl){
-    downloadReadyVideo();
-    return;
-  }
-
-  if(recordingInProgress) return;
-
-  if(typeof syncProfileFromInput==="function"){
-    if(!syncProfileFromInput(false)){
-      alert("Сначала введи дату рождения.");
-      return;
-    }
-  }else if(!birthInput.value || !profile){
-    alert("Сначала введи дату рождения.");
-    return;
-  }
-
-  const audioReady=await ensureAudio();
-  if(!audioReady || !ac || ac.state!=="running"){
-    alert("Коснись мандалы, чтобы включить музыку, затем снова нажми кнопку видео.");
-    return;
-  }
-
-  if(!window.MediaRecorder || typeof canvas.captureStream!=="function"){
-    alert("Запись видео не поддерживается этим браузером.");
-    return;
-  }
-
-  clearReadyVideo();
-
-  const recordingDate=birthInput.value;
-  const safeDate=recordingDate.split("-").reverse().join("-");
-
-  const type=
-    MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
-      ?"video/webm;codecs=vp8,opus":
-    MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
-      ?"video/webm;codecs=vp8":
-    MediaRecorder.isTypeSupported("video/webm")
-      ?"video/webm":"";
-
-  if(!type){
-    alert("Этот браузер не поддерживает запись исходного видео.");
-    return;
-  }
-
-  if(!dest || !dest.stream || dest.stream.getAudioTracks().length===0){
-    alert("Не удалось подготовить музыкальную дорожку. Обнови страницу и коснись мандалы.");
-    return;
-  }
-
-  const canvasStream=canvas.captureStream(24);
-  const combinedStream=new MediaStream();
-  const videoTrack=canvasStream.getVideoTracks()[0];
-  const sourceAudioTrack=dest.stream.getAudioTracks()[0];
-  const audioTrack=sourceAudioTrack ? sourceAudioTrack.clone() : null;
-
-  if(videoTrack) combinedStream.addTrack(videoTrack);
-  if(audioTrack) combinedStream.addTrack(audioTrack);
-
-  if(combinedStream.getVideoTracks().length===0 || combinedStream.getAudioTracks().length===0){
-    canvasStream.getTracks().forEach(track=>track.stop());
-    if(audioTrack) audioTrack.stop();
-    alert("Не удалось соединить изображение и музыку.");
-    return;
-  }
-
-  const chunks=[];
-  let recorder;
-
-  try{
-    recorder=new MediaRecorder(combinedStream,{
-      mimeType:type,
-      videoBitsPerSecond:2200000,
-      audioBitsPerSecond:128000
-    });
-  }catch(error){
-    combinedStream.getTracks().forEach(track=>track.stop());
-    console.error(error);
-    alert("Не удалось запустить запись.");
-    return;
-  }
-
-  recordingInProgress=true;
-  videoButton.disabled=true;
-  imageButton.disabled=true;
-  birthInput.disabled=true;
-
-  let secondsLeft=120;
-  videoButton.textContent=`Запись: ${secondsLeft} сек`;
-  statusNode.textContent="Не закрывай и не сворачивай страницу — идёт запись с музыкой";
-
-  const countdown=setInterval(()=>{
-    secondsLeft--;
-    if(secondsLeft>0) videoButton.textContent=`Запись: ${secondsLeft} сек`;
-  },1000);
-
-  recorder.ondataavailable=event=>{
-    if(event.data && event.data.size>0) chunks.push(event.data);
-  };
-
-  recorder.onerror=event=>{
-    console.error("MediaRecorder error:",event.error);
-  };
-
-  recorder.onstart=()=>{
-    startedAt=performance.now();
-    if(timer){clearInterval(timer);timer=0;}
-    startSequence();
-  };
-
-  recorder.onstop=async()=>{
-    clearInterval(countdown);
-    combinedStream.getTracks().forEach(track=>track.stop());
-    canvasStream.getTracks().forEach(track=>track.stop());
-
-    const totalSize=chunks.reduce((sum,chunk)=>sum+chunk.size,0);
-    if(totalSize<1000){
-      recordingInProgress=false;
-      videoButton.disabled=false;
-      imageButton.disabled=false;
-      birthInput.disabled=false;
-      videoButton.textContent="Создать MP4 + музыку";
-      statusNode.textContent="Запись не создана";
-      alert("Браузер не создал запись. Не сворачивай вкладку во время записи.");
-      return;
-    }
-
-    try{
-      videoButton.textContent="Загрузка модуля MP4 v2…";
-      statusNode.textContent="Подготавливается конвертация MP4";
-      const webmBlob=new Blob(chunks,{type});
-      await convertWebmToMp4(webmBlob,safeDate);
-      videoButton.textContent="Скачать готовый MP4";
-      statusNode.textContent="MP4 готов — нажми кнопку ещё раз";
-    }catch(error){
-      console.error("MP4 conversion error:",error);
-      videoButton.textContent="Создать MP4 + музыку";
-      statusNode.textContent="Не удалось создать MP4";
-      alert(error?.message || "Телефону не хватило памяти для конвертации MP4.");
-    }finally{
-      recordingInProgress=false;
-      videoButton.disabled=false;
-      imageButton.disabled=false;
-      birthInput.disabled=false;
-    }
-  };
-
-  recorder.start(1000);
-  setTimeout(()=>{
-    if(recorder.state==="recording"){
-      recorder.requestData();
-      setTimeout(()=>recorder.stop(),800);
-    }
-  },120000);
+videoButton.addEventListener("click",()=>{
+  statusNode.textContent="MP4 Premium подключим после запуска сервера";
+  setTimeout(()=>statusNode.textContent=profile?"Живая Мандала Души":"Введите дату рождения",2200);
 });
-
-window.addEventListener("beforeunload",clearReadyVideo);
-
-window.addEventListener("resize",resizeCanvas);window.addEventListener("orientationchange",()=>setTimeout(resizeCanvas,180));resizeCanvas();
-
-if(!sessionStorage.getItem("mandala_session_started")){
-  birthInput.value="";
-  profile=null;
-  sessionStorage.setItem("mandala_session_started","1");
-}else{
-  syncProfileFromInput(false);
-}
-
-window.addEventListener("pageshow",event=>{
-  if(event.persisted){
-    syncProfileFromInput(false);
-  }
-});
-
-requestAnimationFrame(render);
+window.addEventListener("resize",resizeCanvas);window.addEventListener("orientationchange",()=>setTimeout(resizeCanvas,180));resizeCanvas();requestAnimationFrame(render);
 </script>
 </body>
 </html>
