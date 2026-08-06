@@ -1,9 +1,1 @@
-# SERVER_RENDER
-
-Заменить этими файлами содержимое репозитория `Mandala_MP4_Server`.
-
-После загрузки Render автоматически пересоберёт существующий сервис.
-
-Проверка:
-- `/health` → `{"ok":true,...}`
-- сервер использует задания `/jobs`, поэтому браузер не держит длинный запрос.
+Universal MP4 converter: POST /convert, form field video. Output H.264 + AAC MP4.

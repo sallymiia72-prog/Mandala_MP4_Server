@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: soul-mandala-async-light
+    name: mandala-mp4-server
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: node server.js
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION

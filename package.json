@@ -1,5 +1,5 @@
 {
-  "name": "soul-mandala-job-renderer",
+  "name": "mandala-universal-mp4-server",
   "version": "2.0.0",
   "private": true,
   "type": "module",
@@ -13,6 +13,6 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "ffmpeg-static": "^5.2.0",
-    "sharp": "^0.33.5"
+    "multer": "^1.4.5-lts.1"
   }
 }
